@@ -1,0 +1,15 @@
+# Core runtime
+runpod==1.7.13
+
+# YOLO — torch/torchvision NO van acá: los provee la base image pytorch/pytorch
+ultralytics==8.3.31
+numpy>=1.26.4,<2.0
+opencv-python-headless==4.10.0.84
+
+# Image IO
+pillow==12.2.0
+pi-heif==0.22.0
+
+# Utilidades
+requests==2.32.3
+huggingface-hub>=0.24.0
