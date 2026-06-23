@@ -1,0 +1,62 @@
+name: Build y deploy a RunPod
+
+on:
+  push:
+    branches: [main]
+
+env:
+  IMAGE: ghcr.io/portfoliofullstack/percepta_patentyl
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write        # necesario para pushear a GHCR
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build y push imagen
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          build-args: |
+            HF_TOKEN=${{ secrets.HF_TOKEN }}
+
+      - name: Crear/actualizar template en RunPod
+        id: template
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          IMAGE_TAG="${{ env.IMAGE }}:${{ github.sha }}"
+          RESP=$(curl -s -X POST "https://api.runpod.io/graphql?api_key=$RUNPOD_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"mutation { saveTemplate(input: { name: \\\"percepta_patentYL\\\", imageName: \\\"$IMAGE_TAG\\\", isServerless: true, containerDiskInGb: 10 }) { id name } }\"}")
+          echo "Respuesta template: $RESP"
+          TEMPLATE_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['saveTemplate']['id'])")
+          echo "template_id=$TEMPLATE_ID" >> $GITHUB_OUTPUT
+
+      - name: Crear/actualizar endpoint en RunPod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          TEMPLATE_ID: ${{ steps.template.outputs.template_id }}
+        run: |
+          RESP=$(curl -s -X POST "https://api.runpod.io/graphql?api_key=$RUNPOD_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"mutation { saveEndpoint(input: { name: \\\"percepta_patentYL\\\", templateId: \\\"$TEMPLATE_ID\\\", gpuIds: \\\"AMPERE_16\\\", workersMin: 0, workersMax: 3, idleTimeout: 5, scalerType: \\\"QUEUE_DELAY\\\", scalerValue: 4 }) { id name } }\"}")
+          echo "Respuesta endpoint: $RESP"
+          ENDPOINT_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['saveEndpoint']['id'])")
+          echo "Endpoint creado: $ENDPOINT_ID"
+          echo "URL: https://api.runpod.io/v2/$ENDPOINT_ID/runsync"
